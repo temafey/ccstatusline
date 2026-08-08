@@ -48,18 +48,19 @@ export class GitBranchWidget implements Widget {
             return item.rawValue ? 'main' : '⎇ main';
         }
 
-        const branch = this.getGitBranch();
+        const branch = this.getGitBranch(context.data?.workspace?.current_dir);
         if (branch)
             return item.rawValue ? branch : `⎇ ${branch}`;
 
         return hideNoGit ? null : '⎇ no git';
     }
 
-    private getGitBranch(): string | null {
+    private getGitBranch(cwd?: string): string | null {
         try {
             const branch = execSync('git branch --show-current', {
                 encoding: 'utf8',
-                stdio: ['pipe', 'pipe', 'ignore']
+                stdio: ['pipe', 'pipe', 'ignore'],
+                cwd: cwd ?? process.cwd()
             }).trim();
             return branch || null;
         } catch {

@@ -21,6 +21,21 @@ export const StatusJSONSchema = z.looseObject({
         total_api_duration_ms: z.number().optional(),
         total_lines_added: z.number().optional(),
         total_lines_removed: z.number().optional()
+    }).optional(),
+    context_window: z.object({
+        context_window_size: z.number().optional(),
+        used_percentage: z.number().nullable().optional(),
+        remaining_percentage: z.number().nullable().optional()
+    }).optional(),
+    rate_limits: z.object({
+        five_hour: z.object({
+            used_percentage: z.number().nullable().optional(),
+            resets_at: z.number().nullable().optional()
+        }).optional(),
+        seven_day: z.object({
+            used_percentage: z.number().nullable().optional(),
+            resets_at: z.number().nullable().optional()
+        }).optional()
     }).optional()
 });
 

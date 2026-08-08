@@ -23,10 +23,13 @@ export class CurrentWorkingDirWidget implements Widget {
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
         const segments = item.metadata?.segments ? parseInt(item.metadata.segments, 10) : undefined;
         const fishStyle = item.metadata?.fishStyle === 'true';
+        const replaceHome = item.metadata?.replaceHome === 'true';
         const modifiers: string[] = [];
 
         if (fishStyle) {
             modifiers.push('fish-style');
+        } else if (replaceHome) {
+            modifiers.push('~ home');
         } else if (segments && segments > 0) {
             modifiers.push(`segments: ${segments}`);
         }
@@ -72,12 +75,15 @@ export class CurrentWorkingDirWidget implements Widget {
     render(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
         const segments = item.metadata?.segments ? parseInt(item.metadata.segments, 10) : undefined;
         const fishStyle = item.metadata?.fishStyle === 'true';
+        const replaceHome = item.metadata?.replaceHome === 'true';
 
         if (context.isPreview) {
             let previewPath: string;
 
             if (fishStyle) {
                 previewPath = '~/D/P/my-project';
+            } else if (replaceHome) {
+                previewPath = '~/Documents/Projects/my-project';
             } else if (segments && segments > 0) {
                 if (segments === 1) {
                     previewPath = '.../project';
@@ -99,6 +105,8 @@ export class CurrentWorkingDirWidget implements Widget {
 
         if (fishStyle) {
             displayPath = this.abbreviatePath(cwd);
+        } else if (replaceHome) {
+            displayPath = this.replaceHomeDir(cwd);
         } else if (segments && segments > 0) {
             // Support both POSIX ('/') and Windows ('\\') separators; preserve original separator in output
             const useBackslash = cwd.includes('\\') && !cwd.includes('/');
@@ -131,6 +139,14 @@ export class CurrentWorkingDirWidget implements Widget {
 
     supportsRawValue(): boolean { return true; }
     supportsColors(item: WidgetItem): boolean { return true; }
+
+    private replaceHomeDir(path: string): string {
+        const homeDir = os.homedir();
+        if (path.startsWith(homeDir)) {
+            return '~' + path.slice(homeDir.length);
+        }
+        return path;
+    }
 
     private abbreviatePath(path: string): string {
         const homeDir = os.homedir();

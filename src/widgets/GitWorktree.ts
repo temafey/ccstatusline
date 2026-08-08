@@ -46,18 +46,19 @@ export class GitWorktreeWidget implements Widget {
         if (context.isPreview)
             return item.rawValue ? 'main' : '𖠰 main';
 
-        const worktree = this.getGitWorktree();
+        const worktree = this.getGitWorktree(context.data?.workspace?.current_dir);
         if (worktree)
             return item.rawValue ? worktree : `𖠰 ${worktree}`;
 
         return hideNoGit ? null : '𖠰 no git';
     }
 
-    private getGitWorktree(): string | null {
+    private getGitWorktree(cwd?: string): string | null {
         try {
             const worktreeDir = execSync('git rev-parse --git-dir', {
                 encoding: 'utf8',
-                stdio: ['pipe', 'pipe', 'ignore']
+                stdio: ['pipe', 'pipe', 'ignore'],
+                cwd: cwd ?? process.cwd()
             }).trim();
 
             // /some/path/.git or .git

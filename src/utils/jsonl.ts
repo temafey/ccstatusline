@@ -85,11 +85,16 @@ export async function getSessionDuration(transcriptPath: string): Promise<string
     }
 }
 
+// Number of recent main-chain assistant turns used to average cache_read_input_tokens.
+// Matches DEFAULT_RECENT_TURNS in cmo.core.context_live so the statusline value
+// and the `cmo context live` WARN/CRIT alerts share one scale.
+const CACHE_READ_TURN_WINDOW = 10;
+
 export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetrics> {
     try {
         // Use Node.js-compatible file reading
         if (!fs.existsSync(transcriptPath)) {
-            return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0 };
+            return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0, cacheReadPerTurn: 0 };
         }
 
         const content = await readFile(transcriptPath, 'utf-8');
@@ -103,6 +108,8 @@ export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetr
         // Parse each line and sum up token usage for totals
         let mostRecentMainChainEntry: TranscriptLine | null = null;
         let mostRecentTimestamp: Date | null = null;
+        // Per-turn cache_read samples for the avg-of-last-N statusline widget.
+        const mainChainCacheReadSamples: Array<{ ts: Date; cr: number }> = [];
 
         for (const line of lines) {
             try {
@@ -121,6 +128,10 @@ export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetr
                             mostRecentTimestamp = entryTime;
                             mostRecentMainChainEntry = data;
                         }
+                        mainChainCacheReadSamples.push({
+                            ts: entryTime,
+                            cr: data.message.usage.cache_read_input_tokens ?? 0
+                        });
                     }
                 }
             } catch {
@@ -136,11 +147,20 @@ export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetr
                 + (usage.cache_creation_input_tokens ?? 0);
         }
 
+        // Average cache_read over the last N main-chain turns (chronological, by timestamp).
+        let cacheReadPerTurn = 0;
+        if (mainChainCacheReadSamples.length > 0) {
+            mainChainCacheReadSamples.sort((a, b) => a.ts.getTime() - b.ts.getTime());
+            const recent = mainChainCacheReadSamples.slice(-CACHE_READ_TURN_WINDOW);
+            const sum = recent.reduce((acc, s) => acc + s.cr, 0);
+            cacheReadPerTurn = Math.round(sum / recent.length);
+        }
+
         const totalTokens = inputTokens + outputTokens + cachedTokens;
 
-        return { inputTokens, outputTokens, cachedTokens, totalTokens, contextLength };
+        return { inputTokens, outputTokens, cachedTokens, totalTokens, contextLength, cacheReadPerTurn };
     } catch {
-        return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0 };
+        return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0, cacheReadPerTurn: 0 };
     }
 }
 

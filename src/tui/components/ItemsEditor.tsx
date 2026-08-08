@@ -257,6 +257,24 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
                     }
                     onUpdate(newWidgets);
                 }
+            } else if (input === 't' && widgets.length > 0) {
+                // Toggle title for non-separator items
+                const currentWidget = widgets[selectedIndex];
+                if (currentWidget && currentWidget.type !== 'separator' && currentWidget.type !== 'flex-separator') {
+                    const newWidgets = [...widgets];
+                    if (currentWidget.title) {
+                        // Remove title
+                        const { title, ...rest } = currentWidget;
+                        void title; // Intentionally unused
+                        newWidgets[selectedIndex] = rest;
+                    } else {
+                        // Add default title based on widget type
+                        const widgetImpl = getWidget(currentWidget.type);
+                        const defaultTitle = widgetImpl ? `${widgetImpl.getDisplayName()}: ` : 'Title: ';
+                        newWidgets[selectedIndex] = { ...currentWidget, title: defaultTitle };
+                    }
+                    onUpdate(newWidgets);
+                }
             } else if (key.escape) {
                 onBack();
             } else if (widgets.length > 0) {
@@ -341,6 +359,7 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
     }
 
     const canMerge = currentWidget && selectedIndex < widgets.length - 1 && !isSeparator && !isFlexSeparator;
+    const canToggleTitle = currentWidget && !isSeparator && !isFlexSeparator;
 
     // Build main help text (without custom keybinds)
     let helpText = '↑↓ select, ←→ change type';
@@ -353,6 +372,9 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
     }
     if (canMerge) {
         helpText += ', (m)erge';
+    }
+    if (canToggleTitle) {
+        helpText += ', (t)itle';
     }
     helpText += ', ESC back';
 
@@ -434,6 +456,14 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
                                         </Text>
                                     )}
                                     {widget.rawValue && <Text dimColor> (raw value)</Text>}
+                                    {widget.title && (
+                                        <Text dimColor>
+                                            {' '}
+                                            (title:
+                                            {widget.title}
+                                            )
+                                        </Text>
+                                    )}
                                     {widget.merge === true && <Text dimColor> (merged→)</Text>}
                                     {widget.merge === 'no-padding' && <Text dimColor> (merged-no-pad→)</Text>}
                                 </Box>

@@ -18,4 +18,5 @@ export interface TokenMetrics {
     cachedTokens: number;
     totalTokens: number;
     contextLength: number;
+    cacheReadPerTurn: number;
 }

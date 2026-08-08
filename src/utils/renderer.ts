@@ -153,6 +153,11 @@ function renderPowerlineStatusLine(
         }
 
         if (widgetText) {
+            // Prepend title if specified
+            if (widget.title) {
+                widgetText = `${widget.title}${widgetText}`;
+            }
+
             // Apply default padding from settings
             const padding = settings.defaultPadding ?? '';
 
@@ -772,6 +777,11 @@ export function renderStatusLine(
             }
 
             if (widgetText) {
+                // Prepend title if specified
+                if (widget.title) {
+                    widgetText = `${widget.title}${widgetText}`;
+                }
+
                 // Special handling for custom-command with preserveColors
                 if (widget.type === 'custom-command' && widget.preserveColors) {
                     // Handle max width truncation for commands with ANSI codes

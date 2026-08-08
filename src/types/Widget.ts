@@ -18,7 +18,8 @@ export const WidgetItemSchema = z.object({
     preserveColors: z.boolean().optional(),
     timeout: z.number().optional(),
     merge: z.union([z.boolean(), z.literal('no-padding')]).optional(),
-    metadata: z.record(z.string(), z.string()).optional()
+    metadata: z.record(z.string(), z.string()).optional(),
+    title: z.string().optional()
 });
 
 // Inferred types from Zod schemas

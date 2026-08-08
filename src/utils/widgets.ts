@@ -16,6 +16,7 @@ const widgetRegistry = new Map<WidgetItemType, Widget>([
     ['tokens-input', new widgets.TokensInputWidget()],
     ['tokens-output', new widgets.TokensOutputWidget()],
     ['tokens-cached', new widgets.TokensCachedWidget()],
+    ['cache-read-per-turn', new widgets.CacheReadPerTurnWidget()],
     ['tokens-total', new widgets.TokensTotalWidget()],
     ['context-length', new widgets.ContextLengthWidget()],
     ['context-percentage', new widgets.ContextPercentageWidget()],
@@ -26,7 +27,9 @@ const widgetRegistry = new Map<WidgetItemType, Widget>([
     ['terminal-width', new widgets.TerminalWidthWidget()],
     ['version', new widgets.VersionWidget()],
     ['custom-text', new widgets.CustomTextWidget()],
-    ['custom-command', new widgets.CustomCommandWidget()]
+    ['custom-command', new widgets.CustomCommandWidget()],
+    ['subscription-usage', new widgets.SubscriptionUsageWidget()],
+    ['subscription-plan', new widgets.SubscriptionPlanWidget()]
 ]);
 
 export function getWidget(type: WidgetItemType): Widget | null {

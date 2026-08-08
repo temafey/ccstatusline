@@ -21,5 +21,10 @@
     "total_api_duration_ms": 2300,
     "total_lines_added": 156,
     "total_lines_removed": 23
+  },
+  "context_window": {
+    "context_window_size": 200000,
+    "used_percentage": 14.2,
+    "remaining_percentage": 85.8
   }
 }

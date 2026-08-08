@@ -48,26 +48,28 @@ export class GitChangesWidget implements Widget {
             return '(+42,-10)';
         }
 
-        const changes = this.getGitChanges();
+        const changes = this.getGitChanges(context.data?.workspace?.current_dir);
         if (changes)
             return `(+${changes.insertions},-${changes.deletions})`;
         else
             return hideNoGit ? null : '(no git)';
     }
 
-    private getGitChanges(): { insertions: number; deletions: number } | null {
+    private getGitChanges(cwd?: string): { insertions: number; deletions: number } | null {
         try {
             let totalInsertions = 0;
             let totalDeletions = 0;
 
             const unstagedStat = execSync('git diff --shortstat', {
                 encoding: 'utf8',
-                stdio: ['pipe', 'pipe', 'ignore']
+                stdio: ['pipe', 'pipe', 'ignore'],
+                cwd: cwd ?? process.cwd()
             }).trim();
 
             const stagedStat = execSync('git diff --cached --shortstat', {
                 encoding: 'utf8',
-                stdio: ['pipe', 'pipe', 'ignore']
+                stdio: ['pipe', 'pipe', 'ignore'],
+                cwd: cwd ?? process.cwd()
             }).trim();
 
             if (unstagedStat) {
