@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as path from 'path';
 
 import type { RenderContext } from '../types/RenderContext';
 import type { Settings } from '../types/Settings';
@@ -9,160 +10,133 @@ import type {
 } from '../types/Widget';
 
 /**
- * Claude Code records the session's auto-generated name as `{"type":"ai-title",
- * "aiTitle":"...","sessionId":"..."}` lines in the transcript JSONL. It appends a
- * fresh record every time the title is recomputed rather than rewriting the old
- * one, so the LAST such record wins.
+ * The session's identity for cross-session messaging (SendMessage / ListAgents).
  *
- * Those records are emitted often enough that the newest one always sits close to
- * EOF — measured at 19-33 KB from the end on 4-6 MB transcripts. Reading a bounded
- * tail therefore avoids the full-file read that getTokenMetrics() already pays.
+ * Claude Code exposes none of this in the statusline stdin payload, and there is
+ * no on-disk peer registry: peers are discovered live over the unix sockets in
+ * $XDG_RUNTIME_DIR/cc-socks/, and both the registry name and the short [ref] that
+ * ListAgents prints are process memory. Two things are recoverable from outside
+ * the process:
+ *
+ *   - the socket, named <pid>.sock, which is what makes the session addressable
+ *     at all (bare mode binds none);
+ *   - an explicit `--name`, which is the only name that does not drift — an
+ *     auto-derived name starts from the cwd folder and then follows the
+ *     conversation topic on its own.
+ *
+ * So this renders `<name> [<pid>]`, with `--` for a session started without
+ * `--name`, which is precisely the case where addressing it by name is unreliable.
  */
-const TAIL_BYTES = 256 * 1024;
-const DEFAULT_MAX_LENGTH = 32;
 const NO_NAME = '--';
+const UNRESOLVED = '--';
+const MAX_PARENT_HOPS = 12;
 
-interface AiTitleRecord {
-    type?: string;
-    aiTitle?: string;
-}
-
-interface Tail {
-    text: string;
-    /** True when the read started mid-file, so the first line is a fragment. */
-    truncated: boolean;
-}
-
-/**
- * Module-level memo. A statusline invocation is a fresh process, so this only
- * helps when the same widget is rendered more than once per process (pre-render
- * pass + per-line render, or the widget placed on both lines).
- */
-let _cachedKey: string | null = null;
-let _cachedName: string | null = null;
-
-function readTail(filePath: string, maxBytes: number): Tail | null {
-    let fd: number | null = null;
+/** Splits /proc/<pid>/cmdline, which is NUL-separated with a trailing NUL. */
+function readCmdline(pid: number): string[] | null {
     try {
-        const size = fs.statSync(filePath).size;
-        if (size === 0)
-            return { text: '', truncated: false };
-
-        const start = Math.max(0, size - maxBytes);
-        const length = size - start;
-        const buf = Buffer.alloc(length);
-
-        fd = fs.openSync(filePath, 'r');
-        fs.readSync(fd, buf, 0, length, start);
-
-        return { text: buf.toString('utf-8'), truncated: start > 0 };
+        return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8')
+            .split('\0')
+            .filter(arg => arg.length > 0);
     } catch {
         return null;
-    } finally {
-        if (fd !== null) {
-            try {
-                fs.closeSync(fd);
-            } catch {
-                // Nothing useful to do if the descriptor is already gone.
-            }
-        }
     }
 }
 
-function extractSessionName(transcriptPath: string): string | null {
-    const tail = readTail(transcriptPath, TAIL_BYTES);
-    if (!tail)
-        return null;
-
-    const lines = tail.text.split('\n');
-
-    // A byte-offset read can land mid-line and mid-UTF-8-codepoint. Dropping the
-    // first line discards both problems at once.
-    const firstUsable = tail.truncated ? 1 : 0;
-
-    for (let i = lines.length - 1; i >= firstUsable; i--) {
-        const line = lines[i];
-        if (!line || !line.includes('"ai-title"'))
+/** Exported for tests: `--name x` and `--name=x` are both accepted. */
+export function parseNameFromArgv(argv: string[]): string | null {
+    for (let i = 0; i < argv.length; i++) {
+        const arg = argv[i];
+        if (!arg)
             continue;
 
-        try {
-            const record = JSON.parse(line) as AiTitleRecord;
-            const title = record.type === 'ai-title' ? record.aiTitle?.trim() : undefined;
-            if (title)
-                return title;
-        } catch {
-            // Torn or non-JSON line — keep scanning backwards.
+        if (arg.startsWith('--name=')) {
+            const value = arg.slice('--name='.length).trim();
+            if (value)
+                return value;
         }
+
+        if (arg === '--name') {
+            const value = argv[i + 1]?.trim();
+            // A following flag means --name was passed without a value.
+            if (value && !value.startsWith('-'))
+                return value;
+        }
+    }
+    return null;
+}
+
+function isClaudeProcess(argv: string[]): boolean {
+    const argv0 = argv[0];
+    if (!argv0)
+        return false;
+    // comm is unreliable here: it has been observed carrying the version string
+    // ("2.1.220") or "MainThread" instead of the binary name.
+    return path.basename(argv0) === 'claude';
+}
+
+function parentOf(pid: number): number | null {
+    try {
+        const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf-8');
+        // Field 2 (comm) is parenthesised and may itself contain spaces or
+        // parentheses, so anchor on the LAST ')' rather than splitting naively.
+        const afterComm = stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/);
+        const ppid = Number.parseInt(afterComm[1] ?? '', 10);
+        return Number.isFinite(ppid) && ppid > 1 ? ppid : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * $CLAUDE_CODE_MESSAGING_SOCKET is documented as exported to hooks and Bash, not
+ * to the statusline, so the parent walk is the load-bearing path and the env var
+ * is only a shortcut. The statusline may be a grandchild (a sidecar wrapper sits
+ * between it and Claude Code in some setups), hence the walk rather than one hop.
+ */
+function resolveSessionPid(): number | null {
+    const socket = process.env['CLAUDE_CODE_MESSAGING_SOCKET'];
+    if (socket) {
+        const fromSocket = Number.parseInt(path.basename(socket, '.sock'), 10);
+        if (Number.isFinite(fromSocket) && fromSocket > 1)
+            return fromSocket;
+    }
+
+    let pid: number | null = process.ppid;
+    for (let hop = 0; hop < MAX_PARENT_HOPS && pid !== null; hop++) {
+        const argv = readCmdline(pid);
+        if (argv && isClaudeProcess(argv))
+            return pid;
+        pid = parentOf(pid);
     }
 
     return null;
 }
 
-function sessionNameFor(transcriptPath: string): string | null {
-    let key: string;
-    try {
-        const stat = fs.statSync(transcriptPath);
-        key = `${transcriptPath}:${stat.size}`;
-    } catch {
-        return null;
-    }
-
-    if (key === _cachedKey)
-        return _cachedName;
-
-    _cachedName = extractSessionName(transcriptPath);
-    _cachedKey = key;
-    return _cachedName;
-}
-
-/**
- * Truncates on character count. `maxWidth` in the item schema is only honoured by
- * the renderer for custom-command widgets, so width control lives here.
- */
-function truncate(text: string, max: number): string {
-    if (max <= 0 || text.length <= max)
-        return text;
-    if (max === 1)
-        return '…';
-    return `${text.slice(0, max - 1)}…`;
-}
-
-function readMaxLength(item: WidgetItem): number {
-    const raw = item.metadata?.maxLength;
-    if (!raw)
-        return DEFAULT_MAX_LENGTH;
-    const parsed = Number.parseInt(raw, 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_LENGTH;
-}
-
 export class SessionNameWidget implements Widget {
     getDefaultColor(): string { return 'yellow'; }
     getDescription(): string {
-        return 'Session name — the auto-generated title Claude Code shows in the resume picker (read from the transcript)';
+        return 'Cross-session messaging identity: the explicit --name (or -- when unnamed) plus the pid its peer socket is named after';
     }
     getDisplayName(): string { return 'Session Name'; }
-    getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
-        const max = readMaxLength(item);
-        return {
-            displayText: this.getDisplayName(),
-            modifierText: max === DEFAULT_MAX_LENGTH ? undefined : `max ${max}`
-        };
+    getEditorDisplay(_item: WidgetItem): WidgetEditorDisplay {
+        return { displayText: this.getDisplayName() };
     }
 
     render(item: WidgetItem, context: RenderContext, _settings: Settings): string | null {
-        const maxLength = readMaxLength(item);
-
         if (context.isPreview) {
-            const data = truncate('Statusline widget rewrite', maxLength);
-            return item.rawValue ? data : `Session: ${data}`;
+            const data = 'cmo-statusline [123456]';
+            return item.rawValue ? data : `SessionName: ${data}`;
         }
 
-        const transcriptPath = context.data?.transcript_path;
-        const name = transcriptPath ? sessionNameFor(transcriptPath) : null;
+        const pid = resolveSessionPid();
+        if (pid === null)
+            return item.rawValue ? UNRESOLVED : `SessionName: ${UNRESOLVED}`;
 
-        // A fresh session has no ai-title record until Claude Code generates one.
-        const data = name ? truncate(name, maxLength) : NO_NAME;
-        return item.rawValue ? data : `Session: ${data}`;
+        const argv = readCmdline(pid);
+        const name = argv ? parseNameFromArgv(argv) : null;
+
+        const data = `${name ?? NO_NAME} [${pid}]`;
+        return item.rawValue ? data : `SessionName: ${data}`;
     }
 
     supportsRawValue(): boolean { return true; }

@@ -30,7 +30,8 @@ const widgetRegistry = new Map<WidgetItemType, Widget>([
     ['custom-command', new widgets.CustomCommandWidget()],
     ['subscription-usage', new widgets.SubscriptionUsageWidget()],
     ['subscription-plan', new widgets.SubscriptionPlanWidget()],
-    ['session-name', new widgets.SessionNameWidget()]
+    ['session-name', new widgets.SessionNameWidget()],
+    ['session-title', new widgets.SessionTitleWidget()]
 ]);
 
 export function getWidget(type: WidgetItemType): Widget | null {

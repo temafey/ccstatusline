@@ -22,3 +22,4 @@ export { CurrentWorkingDirWidget } from './CurrentWorkingDir';
 export { SubscriptionUsageWidget } from './SubscriptionUsage';
 export { SubscriptionPlanWidget } from './SubscriptionPlan';
 export { SessionNameWidget } from './SessionName';
+export { SessionTitleWidget } from './SessionTitle';
